@@ -1,0 +1,271 @@
+ # -*- coding: utf-8 -*-
+import struct
+import collections
+import mathutils
+import bpy
+import math
+import re
+
+bl_info= {
+    "name": "Import Vocaloid Motion Data file (.vmd)",
+    "author": "sugiany",
+    "version": (0, 0, 1),
+    "blender": (2, 6, 2),
+    "location": "File > Import > Import Vocaloid Motion Data file (.vmd)",
+    "description": "Import a MikuMikuDance Motion data file (.vmd).",
+    "warning": "",
+    "wiki_url": "",
+    "tracker_url": "",
+    "category": "Import-Export"}
+
+
+def _toShiftJisString(byteString):
+    eindex = byteString.index(b"\x00")
+    if eindex < len(byteString):
+        byteString = byteString[0:eindex]
+    return byteString.decode("shift_jis")
+
+class BoneFrame:
+    def __init__(self, frame, location, rotation, interp):
+        self.frame = int(frame)
+        self.location = location
+        self.rotation = rotation
+        self.interp = interp
+
+class ShapeKeyFrame:
+    def __init__(self, frame, weight):
+        self.frame = int(frame)
+        self.weight = float(weight)
+
+class CameraKeyFrame:
+    def __init__(self, frame, location, rotation, interp, angle, persp):
+        self.frame = int(frame)
+        self.location = location
+        self.rotation = rotation
+        self.interp = interp
+        self.angle = angle
+        self.persp = persp
+
+class VMDFile:
+    def __init__(self):
+        self.__signature = ""
+        self.__modelname = ""
+        self.__bones = {}
+        self.__shapes = {}
+        self.__camera = []
+
+    def bones(self):
+        return self.__bones
+
+    def shapes(self):
+        return self.__shapes
+
+    def load(self, path):
+        fin = open(path, 'rb')
+        try:
+            self.__readHeader(fin)
+
+            motionCount = self.__readCount(fin)
+            self.__readMotionKeys(fin, motionCount)
+
+            skinCount = self.__readCount(fin)
+            self.__readSkinMotionKeys(fin, skinCount)
+
+            cameraCount = self.__readCount(fin)
+            self.__readCameraKeys(fin, cameraCount)
+        finally:
+            fin.close()
+
+    def __readHeader(self, fin):
+        (self.__signature, data) = struct.unpack('<30s20s', fin.read(30+20))
+        self.__modelname = _toShiftJisString(data)
+
+    def __readCount(self, fin):
+        return int(struct.unpack('<L', fin.read(4))[0])
+
+    def __readMotionKeys(self, fin, num):
+        for i in range(num):
+            loc = mathutils.Vector()
+            rot = mathutils.Quaternion()
+            (name, frame, loc.x, loc.y, loc.z, rot.x, rot.y, rot.z, rot.w, interp) = struct.unpack('<15sLfffffff64s', fin.read(15+4+4*3+4*4+64))
+            name = _toShiftJisString(name)
+            if not name in self.__bones:
+                self.__bones[name] = []
+            self.__bones[name].append(BoneFrame(frame, loc, rot, interp))
+
+        for i in self.__bones.values():
+            i.sort(key=lambda x:x.frame)
+
+    def __readSkinMotionKeys(self, fin, num):
+        res = []
+        for i in range(num):
+            (name, frame, weight) = struct.unpack('<15sLf', fin.read(15+4+4))
+            name = _toShiftJisString(name)
+            if not name in self.__shapes:
+                self.__shapes[name] = []
+            self.__shapes[name].append(ShapeKeyFrame(frame, weight))
+
+        for i in self.__shapes.values():
+            i.sort(key=lambda x:x.frame)
+
+    def __readCameraKeys(self, fin, num):
+        for i in range(num):
+            loc = mathutils.Vector()
+            rot = mathutils.Vector()
+            (frame, length, loc.x, loc.y, loc.z, rot.x, rot.y, rot.z, interp, angle, persp) = struct.unpack('<LLffffff24sL1s', fin.read(4+4+4*3+4*3+24+4+1))
+            self.__camera.append(CameraKeyFrame(frame, location, rotation, interp, angle, persp))
+
+        self.__camera.sort(key=lambda x:x.frame)
+
+    def __translateMat(self, bone):
+        mat = mathutils.Matrix()
+        mat[0][0], mat[1][0], mat[2][0] = bone.x_axis.x, bone.x_axis.y, bone.x_axis.z
+        mat[0][1], mat[1][1], mat[2][1] = bone.z_axis.x, bone.z_axis.y, bone.z_axis.z
+        mat[0][2], mat[1][2], mat[2][2] = bone.y_axis.x, bone.y_axis.y, bone.y_axis.z
+        return mat
+
+
+def convertVMDBoneLocationToBlender(blender_bone, location):
+    mat = mathutils.Matrix()
+    mat[0][0], mat[1][0], mat[2][0] = blender_bone.x_axis.x, blender_bone.x_axis.y, blender_bone.x_axis.z
+    mat[0][1], mat[1][1], mat[2][1] = blender_bone.z_axis.x, blender_bone.z_axis.y, blender_bone.z_axis.z
+    mat[0][2], mat[1][2], mat[2][2] = blender_bone.y_axis.x, blender_bone.y_axis.y, blender_bone.y_axis.z
+
+    return mat * location
+
+def convertVMDBoneRotationToBlender(blender_bone, rotation):
+    mat = mathutils.Matrix()
+    mat[0][0], mat[1][0], mat[2][0] = blender_bone.x_axis.x, blender_bone.y_axis.x, blender_bone.z_axis.x
+    mat[0][1], mat[1][1], mat[2][1] = blender_bone.x_axis.y, blender_bone.y_axis.y, blender_bone.z_axis.y
+    mat[0][2], mat[1][2], mat[2][2] = blender_bone.x_axis.z, blender_bone.y_axis.z, blender_bone.z_axis.z
+    (vec, angle) = rotation.to_axis_angle()
+    v = mathutils.Vector((-vec.x, -vec.z, -vec.y))
+    return mathutils.Quaternion(mat*v, angle)
+
+def defaultNameFilter(name):
+    m = re.match('左(.*)$', name)
+    if m:
+        name = m.group(1) + '_L'
+    m = re.match('右(.*)$', name)
+    if m:
+        name = m.group(1) + '_R'
+    return name
+
+def fixRotations(rotation_ary):
+    rotation_ary = list(rotation_ary)
+    if len(rotation_ary) == 0:
+        return rotation_ary
+
+    pq = rotation_ary.pop(0)
+    res = [pq]
+    for q in rotation_ary:
+        nq = -q
+        t1 = (pq.w-q.w)**2+(pq.x-q.x)**2+(pq.y-q.y)**2+(pq.z-q.z)**2
+        t2 = (pq.w-nq.w)**2+(pq.x-nq.x)**2+(pq.y-nq.y)**2+(pq.z-nq.z)**2
+        if t2 < t1:
+            res.append(nq)
+            pq = nq
+        else:
+            res.append(q)
+            pq = q
+    return res
+
+def assignSelectedObject(obj, vmd_file, scale=0.2, name_filter=defaultNameFilter):
+
+    arm = obj.data
+    pose = obj.pose
+    for name, frames in vmd_file.bones().items():
+        name = name_filter(name)
+        if name not in pose.bones.keys():
+            print("WARINIG: not found bone %s"%str(name))
+            continue
+        bone = pose.bones[name]
+
+        frameNumbers = map(lambda x: x.frame, frames)
+        locations = map(lambda x: convertVMDBoneLocationToBlender(bone, x.location) * scale, frames)
+        rotations = map(lambda x: convertVMDBoneRotationToBlender(bone, x.rotation), frames)
+
+        rotations = fixRotations(rotations)
+        for frame, location, rotation in zip(frameNumbers, locations, rotations):
+            bone.location = location
+            bone.rotation_quaternion = rotation
+            bone.keyframe_insert(data_path='location',
+                                 group=name,
+                                 frame=frame)
+            bone.keyframe_insert(data_path='rotation_quaternion',
+                                 group=name,
+                                 frame=frame)
+
+def assignShapeKeys(obj, vmd_file):
+
+    shapeKeyDict = {}
+    for i in obj.data.shape_keys.key_blocks:
+        shapeKeyDict[i.name] = i
+
+    for name, frames in vmd_file.shapes().items():
+        if name not in shapeKeyDict:
+            print("WARINIG: not found bone %s"%str(name))
+            continue
+        shapeKey = shapeKeyDict[name]
+        for frame, weight in map(lambda x: (x.frame, x.weight), frames):
+            shapeKey.value = weight
+            shapeKey.keyframe_insert(data_path='value',
+                                     group=name,
+                                     frame=frame)
+
+from bpy.props import StringProperty
+
+class ImportVmd_Op(bpy.types.Operator):
+    bl_idname= "vmd.importer"
+    bl_label= "Import Vocaloid Motion Data file (.vmd)"
+    bl_description= "Import a MMD Motion data file (.vmd)"
+    bl_options= {'REGISTER', 'UNDO'}
+
+    filepath= StringProperty(name="File Path", description="Filepath used for importing the VMD file", maxlen=1024, default="")
+
+    def execute(self, context):
+        vmd = VMDFile()
+        vmd.load(self.filepath)
+
+        armature = None
+        for i in bpy.context.selected_objects:
+            if i.type == 'ARMATURE':
+                armature = i
+                break
+        if armature != None:
+            assignSelectedObject(armature, vmd)
+
+        mesh = None
+        for i in bpy.context.selected_objects:
+            if i.type == 'MESH':
+                mesh = i
+                break
+
+        if mesh != None:
+            assignShapeKeys(mesh, vmd)
+
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        wm= context.window_manager
+        wm.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+
+def menu_func(self, context):
+    self.layout.operator(ImportVmd_Op.bl_idname, text="Vocaloid Motion Data file (.vmd)")
+
+
+def register():
+    bpy.utils.register_module(__name__)
+
+    bpy.types.INFO_MT_file_import.append(menu_func)
+
+
+def unregister():
+    bpy.utils.unregister_module(__name__)
+
+    bpy.types.INFO_MT_file_import.remove(menu_func)
+
+if __name__ == "__main__":
+    register()

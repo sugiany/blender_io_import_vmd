@@ -214,14 +214,15 @@ def assignShapeKeys(obj, vmd_file):
                                      frame=frame)
 
 from bpy.props import StringProperty
-
-class ImportVmd_Op(bpy.types.Operator):
+from bpy_extras.io_utils import ExportHelper,ImportHelper
+class ImportVmd_Op(bpy.types.Operator, ImportHelper):
     bl_idname= "vmd.importer"
     bl_label= "Import Vocaloid Motion Data file (.vmd)"
     bl_description= "Import a MMD Motion data file (.vmd)"
-    bl_options= {'REGISTER', 'UNDO'}
+    bl_options= {'PRESET'}
 
-    filepath= StringProperty(name="File Path", description="Filepath used for importing the VMD file", maxlen=1024, default="")
+    filename_ext = ".vmd"
+    filter_glob = StringProperty(default='*.vmd', options={'HIDDEN'})
 
     def execute(self, context):
         vmd = VMDFile()

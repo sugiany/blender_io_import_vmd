@@ -38,8 +38,9 @@ class ShapeKeyFrame:
         self.weight = float(weight)
 
 class CameraKeyFrame:
-    def __init__(self, frame, location, rotation, interp, angle, persp):
+    def __init__(self, frame, length, location, rotation, interp, angle, persp):
         self.frame = int(frame)
+        self.length = length
         self.location = location
         self.rotation = rotation
         self.interp = interp
@@ -59,6 +60,9 @@ class VMDFile:
 
     def shapes(self):
         return self.__shapes
+
+    def camera(self):
+        return self.__camera
 
     def load(self, path):
         fin = open(path, 'rb')
@@ -112,8 +116,8 @@ class VMDFile:
         for i in range(num):
             loc = mathutils.Vector()
             rot = mathutils.Vector()
-            (frame, length, loc.x, loc.y, loc.z, rot.x, rot.y, rot.z, interp, angle, persp) = struct.unpack('<LLffffff24sL1s', fin.read(4+4+4*3+4*3+24+4+1))
-            self.__camera.append(CameraKeyFrame(frame, location, rotation, interp, angle, persp))
+            (frame, length, loc.x, loc.y, loc.z, rot.x, rot.y, rot.z, interp, angle, persp) = struct.unpack('<Lfffffff24sL1s', fin.read(4+4+4*3+4*3+24+4+1))
+            self.__camera.append(CameraKeyFrame(frame, length, loc, rot, interp, angle, persp))
 
         self.__camera.sort(key=lambda x:x.frame)
 
@@ -213,7 +217,30 @@ def assignShapeKeys(obj, vmd_file):
                                      group=name,
                                      frame=frame)
 
-from bpy.props import StringProperty
+def createMMDCamera(camera):
+    empty = bpy.data.objects.new('MMD_Camera', None)
+    empty.rotation_mode = 'XYZ'
+    camera.location = mathutils.Vector((0,0,0))
+    camera.rotation_mode = 'XYZ'
+    camera.rotation_euler = mathutils.Vector((0,0,0))
+    camera.parent = empty
+    bpy.context.scene.objects.link(empty)
+    return camera
+
+def assignCameraMotion(camera, vmd_file, scale=0.2):
+    camera = createMMDCamera(camera)
+    for i in vmd_file.camera():
+        camera.location = mathutils.Vector((0, 0, -i.length)) * scale
+        camera.parent.location = mathutils.Vector((i.location.x, -i.location.z, i.location.y)) * scale
+        camera.parent.rotation_euler = mathutils.Vector((i.rotation.x+math.radians(90.0), i.rotation.z, i.rotation.y))
+        camera.keyframe_insert(data_path='location',
+                               frame=i.frame)
+        camera.parent.keyframe_insert(data_path='location',
+                                      frame=i.frame)
+        camera.parent.keyframe_insert(data_path='rotation_euler',
+                                      frame=i.frame)
+
+from bpy.props import StringProperty, FloatProperty
 from bpy_extras.io_utils import ExportHelper,ImportHelper
 class ImportVmd_Op(bpy.types.Operator, ImportHelper):
     bl_idname= "vmd.importer"
@@ -223,6 +250,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
 
     filename_ext = ".vmd"
     filter_glob = StringProperty(default='*.vmd', options={'HIDDEN'})
+    scale = FloatProperty(name="scale", default=0.2)
 
     def execute(self, context):
         vmd = VMDFile()
@@ -233,8 +261,8 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
             if i.type == 'ARMATURE':
                 armature = i
                 break
-        if armature != None:
-            assignSelectedObject(armature, vmd)
+        if armature is not None:
+            assignSelectedObject(armature, vmd, scale=self.scale)
 
         mesh = None
         for i in bpy.context.selected_objects:
@@ -242,8 +270,16 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
                 mesh = i
                 break
 
-        if mesh != None:
+        if mesh is not None:
             assignShapeKeys(mesh, vmd)
+
+        camera = None
+        for i in bpy.context.selected_objects:
+            if i.type == 'CAMERA':
+                camera = i
+                break
+        if camera is not None:
+            assignCameraMotion(camera, vmd)
 
         return {'FINISHED'}
 

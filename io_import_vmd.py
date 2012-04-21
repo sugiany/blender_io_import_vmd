@@ -229,10 +229,24 @@ def createMMDCamera(camera):
     bpy.context.scene.objects.link(empty)
     return camera
 
-def assignCameraMotion(camera, vmd_file, scale=0.2):
+def detectSceneChange(fcurve, threshold):
+    frames = list(fcurve.keyframe_points)
+    frameCount = len(frames)
+    frames.sort(key=lambda x:x.co[0])
+    for i, f in enumerate(frames):
+        if i+1 < frameCount:
+            n = frames[i+1]
+            if n.co[0] - f.co[0] <= 1.0 and abs(f.co[1] - n.co[1]) > threshold:
+                f.interpolation = 'CONSTANT'
+
+
+def assignCameraMotion(camera, vmd_file, scale=0.2, cut_detection_threshold=0.5):
     if camera.parent is None or camera.parent.name != _MMD_CAMERA_NAME:
         camera = createMMDCamera(camera)
-    for i in vmd_file.camera():
+    cameraFrames = vmd_file.camera()
+    frameCount = len(cameraFrames)
+    for n, i in enumerate(cameraFrames):
+
         camera.data.sensor_width = i.angle
         camera.location = mathutils.Vector((0, 0, -i.length)) * scale
         camera.parent.location = mathutils.Vector((i.location.x, -i.location.z, i.location.y)) * scale
@@ -246,6 +260,10 @@ def assignCameraMotion(camera, vmd_file, scale=0.2):
         camera.parent.keyframe_insert(data_path='rotation_euler',
                                       frame=i.frame)
 
+    for fcurve in camera.parent.animation_data.action.fcurves:
+        if fcurve.data_path == 'rotation_euler':
+            detectSceneChange(fcurve, cut_detection_threshold)
+
 from bpy.props import StringProperty, FloatProperty
 from bpy_extras.io_utils import ExportHelper,ImportHelper
 class ImportVmd_Op(bpy.types.Operator, ImportHelper):
@@ -257,6 +275,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
     filename_ext = ".vmd"
     filter_glob = StringProperty(default='*.vmd', options={'HIDDEN'})
     scale = FloatProperty(name="scale", default=0.2)
+    cutThreshold = FloatProperty(name="cut scene detection threshold", default=1)
 
     def execute(self, context):
         vmd = VMDFile()

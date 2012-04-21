@@ -18,6 +18,7 @@ bl_info= {
     "tracker_url": "",
     "category": "Import-Export"}
 
+_MMD_CAMERA_NAME = 'MMD_Camera'
 
 def _toShiftJisString(byteString):
     eindex = byteString.index(b"\x00")
@@ -218,7 +219,7 @@ def assignShapeKeys(obj, vmd_file):
                                      frame=frame)
 
 def createMMDCamera(camera):
-    empty = bpy.data.objects.new('MMD_Camera', None)
+    empty = bpy.data.objects.new(_MMD_CAMERA_NAME, None)
     empty.rotation_mode = 'XYZ'
     camera.location = mathutils.Vector((0,0,0))
     camera.rotation_mode = 'XYZ'
@@ -228,7 +229,8 @@ def createMMDCamera(camera):
     return camera
 
 def assignCameraMotion(camera, vmd_file, scale=0.2):
-    camera = createMMDCamera(camera)
+    if camera.parent is None or camera.parent.name != _MMD_CAMERA_NAME:
+        camera = createMMDCamera(camera)
     for i in vmd_file.camera():
         camera.location = mathutils.Vector((0, 0, -i.length)) * scale
         camera.parent.location = mathutils.Vector((i.location.x, -i.location.z, i.location.y)) * scale
@@ -274,10 +276,17 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
             assignShapeKeys(mesh, vmd)
 
         camera = None
-        for i in bpy.context.selected_objects:
-            if i.type == 'CAMERA':
-                camera = i
-                break
+        try:
+            for i in bpy.data.objects[_MMD_CAMERA_NAME].children:
+                if i.type == 'CAMERA':
+                    camera = i
+                    break
+        except KeyError:
+            for i in bpy.context.selected_objects:
+                if i.type == 'CAMERA':
+                    camera = i
+                    break
+
         if camera is not None:
             assignCameraMotion(camera, vmd)
 

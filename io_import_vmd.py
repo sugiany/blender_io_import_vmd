@@ -221,6 +221,7 @@ def assignShapeKeys(obj, vmd_file):
 def createMMDCamera(camera):
     empty = bpy.data.objects.new(_MMD_CAMERA_NAME, None)
     empty.rotation_mode = 'XYZ'
+    camera.data.sensor_fit = 'AUTO'
     camera.location = mathutils.Vector((0,0,0))
     camera.rotation_mode = 'XYZ'
     camera.rotation_euler = mathutils.Vector((0,0,0))
@@ -232,9 +233,12 @@ def assignCameraMotion(camera, vmd_file, scale=0.2):
     if camera.parent is None or camera.parent.name != _MMD_CAMERA_NAME:
         camera = createMMDCamera(camera)
     for i in vmd_file.camera():
+        camera.data.sensor_width = i.angle
         camera.location = mathutils.Vector((0, 0, -i.length)) * scale
         camera.parent.location = mathutils.Vector((i.location.x, -i.location.z, i.location.y)) * scale
         camera.parent.rotation_euler = mathutils.Vector((i.rotation.x+math.radians(90.0), i.rotation.z, i.rotation.y))
+        camera.data.keyframe_insert(data_path='sensor_width',
+                                    frame=i.frame)
         camera.keyframe_insert(data_path='location',
                                frame=i.frame)
         camera.parent.keyframe_insert(data_path='location',

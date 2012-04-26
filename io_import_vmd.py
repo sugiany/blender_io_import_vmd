@@ -9,7 +9,7 @@ import re
 bl_info= {
     "name": "Import Vocaloid Motion Data file (.vmd)",
     "author": "sugiany",
-    "version": (0, 0, 1),
+    "version": (0, 1, 0),
     "blender": (2, 6, 2),
     "location": "File > Import > Import Vocaloid Motion Data file (.vmd)",
     "description": "Import a MikuMikuDance Motion data file (.vmd).",

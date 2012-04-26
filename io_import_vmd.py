@@ -175,7 +175,7 @@ def fixRotations(rotation_ary):
             pq = q
     return res
 
-def assignSelectedObject(obj, vmd_file, scale=0.2, name_filter=defaultNameFilter):
+def assignSelectedObject(obj, vmd_file, scale=0.2, frame_offset=0, name_filter=defaultNameFilter):
 
     arm = obj.data
     pose = obj.pose
@@ -196,12 +196,12 @@ def assignSelectedObject(obj, vmd_file, scale=0.2, name_filter=defaultNameFilter
             bone.rotation_quaternion = rotation
             bone.keyframe_insert(data_path='location',
                                  group=name,
-                                 frame=frame)
+                                 frame=frame+frame_offset)
             bone.keyframe_insert(data_path='rotation_quaternion',
                                  group=name,
-                                 frame=frame)
+                                 frame=frame+frame_offset)
 
-def assignShapeKeys(obj, vmd_file):
+def assignShapeKeys(obj, vmd_file, frame_offset=0):
 
     shapeKeyDict = {}
     for i in obj.data.shape_keys.key_blocks:
@@ -216,7 +216,7 @@ def assignShapeKeys(obj, vmd_file):
             shapeKey.value = weight
             shapeKey.keyframe_insert(data_path='value',
                                      group=name,
-                                     frame=frame)
+                                     frame=frame+frame_offset)
 
 def createMMDCamera(camera):
     empty = bpy.data.objects.new(_MMD_CAMERA_NAME, None)
@@ -240,7 +240,7 @@ def detectSceneChange(fcurve, threshold):
                 f.interpolation = 'CONSTANT'
 
 
-def assignCameraMotion(camera, vmd_file, scale=0.2, cut_detection_threshold=0.5):
+def assignCameraMotion(camera, vmd_file, scale=0.2, frame_offset=0, cut_detection_threshold=0.5):
     if camera.parent is None or camera.parent.name != _MMD_CAMERA_NAME:
         camera = createMMDCamera(camera)
     cameraFrames = vmd_file.camera()
@@ -252,19 +252,19 @@ def assignCameraMotion(camera, vmd_file, scale=0.2, cut_detection_threshold=0.5)
         camera.parent.location = mathutils.Vector((i.location.x, -i.location.z, i.location.y)) * scale
         camera.parent.rotation_euler = mathutils.Vector((i.rotation.x+math.radians(90.0), i.rotation.z, i.rotation.y))
         camera.data.keyframe_insert(data_path='sensor_width',
-                                    frame=i.frame)
+                                    frame=i.frame+frame_offset)
         camera.keyframe_insert(data_path='location',
-                               frame=i.frame)
+                               frame=i.frame+frame_offset)
         camera.parent.keyframe_insert(data_path='location',
-                                      frame=i.frame)
+                                      frame=i.frame+frame_offset)
         camera.parent.keyframe_insert(data_path='rotation_euler',
-                                      frame=i.frame)
+                                      frame=i.frame+frame_offset)
 
     for fcurve in camera.parent.animation_data.action.fcurves:
         if fcurve.data_path == 'rotation_euler':
             detectSceneChange(fcurve, cut_detection_threshold)
 
-from bpy.props import StringProperty, FloatProperty
+from bpy.props import StringProperty, FloatProperty, IntProperty
 from bpy_extras.io_utils import ExportHelper,ImportHelper
 class ImportVmd_Op(bpy.types.Operator, ImportHelper):
     bl_idname= "vmd.importer"
@@ -275,6 +275,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
     filename_ext = ".vmd"
     filter_glob = StringProperty(default='*.vmd', options={'HIDDEN'})
     scale = FloatProperty(name="scale", default=0.2)
+    frameOffset = IntProperty(name="frame offset", default=0)
     cutThreshold = FloatProperty(name="cut scene detection threshold", default=1)
 
     def execute(self, context):
@@ -287,7 +288,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
                 armature = i
                 break
         if armature is not None:
-            assignSelectedObject(armature, vmd, scale=self.scale)
+            assignSelectedObject(armature, vmd, scale=self.scale, frame_offset=self.frameOffset)
 
         mesh = None
         for i in bpy.context.selected_objects:
@@ -296,7 +297,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
                 break
 
         if mesh is not None:
-            assignShapeKeys(mesh, vmd)
+            assignShapeKeys(mesh, vmd, frame_offset=self.frameOffset)
 
         camera = None
         try:
@@ -311,7 +312,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
                     break
 
         if camera is not None:
-            assignCameraMotion(camera, vmd)
+            assignCameraMotion(camera, vmd, scale=self.scale, frame_offset=self.frameOffset)
 
         return {'FINISHED'}
 

@@ -5,6 +5,7 @@ import mathutils
 import bpy
 import math
 import re
+import os
 
 bl_info= {
     "name": "Import Vocaloid Motion Data file (.vmd)",
@@ -201,8 +202,8 @@ def assignSelectedObject(obj, vmd_file, scale=0.2, frame_offset=0, name_filter=d
                                  group=name,
                                  frame=frame+frame_offset)
 
-def assignShapeKeys(obj, vmd_file, frame_offset=0):
-
+def assignShapeKeys(obj, vmd_file, frame_offset=0, action_name=''):
+    linkActionForShapeKey(action_name+'_shape', [obj])
     shapeKeyDict = {}
     for i in obj.data.shape_keys.key_blocks:
         shapeKeyDict[i.name] = i
@@ -240,11 +241,14 @@ def detectSceneChange(fcurve, threshold):
                 f.interpolation = 'CONSTANT'
 
 
-def assignCameraMotion(camera, vmd_file, scale=0.2, frame_offset=0, cut_detection_threshold=0.5):
+def assignCameraMotion(camera, vmd_file, scale=0.2, frame_offset=0, cut_detection_threshold=0.5, action_name=''):
     if camera.parent is None or camera.parent.name != _MMD_CAMERA_NAME:
         camera = createMMDCamera(camera)
     cameraFrames = vmd_file.camera()
     frameCount = len(cameraFrames)
+    linkAction(action_name+'_cam',  [camera])
+    linkAction(action_name+'_came',  [camera.parent])
+
     for n, i in enumerate(cameraFrames):
 
         camera.data.sensor_width = i.angle
@@ -263,6 +267,18 @@ def assignCameraMotion(camera, vmd_file, scale=0.2, frame_offset=0, cut_detectio
     for fcurve in camera.parent.animation_data.action.fcurves:
         if fcurve.data_path == 'rotation_euler':
             detectSceneChange(fcurve, cut_detection_threshold)
+
+def linkAction(name, objects):
+    act = bpy.data.actions.new(name=name)
+    for i in objects:
+        a = i.animation_data_create()
+        a.action = act
+
+def linkActionForShapeKey(name, objects):
+    act = bpy.data.actions.new(name=name)
+    for i in objects:
+        a = i.data.shape_keys.animation_data_create()
+        a.action = act
 
 from bpy.props import StringProperty, FloatProperty, IntProperty, BoolProperty
 from bpy_extras.io_utils import ExportHelper,ImportHelper
@@ -285,12 +301,15 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
         vmd = VMDFile()
         vmd.load(self.filepath)
 
+        actionName = os.path.splitext(os.path.basename(self.filepath))[0]
+
         armature = None
         for i in bpy.context.selected_objects:
             if i.type == 'ARMATURE':
                 armature = i
                 break
         if self.enabled_bone_key and armature is not None:
+            linkAction(actionName+'_arm',  [armature])
             assignSelectedObject(armature, vmd, scale=self.scale, frame_offset=self.frameOffset)
 
         mesh = None
@@ -300,7 +319,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
                 break
 
         if self.enabled_shape_key and mesh is not None:
-            assignShapeKeys(mesh, vmd, frame_offset=self.frameOffset)
+            assignShapeKeys(mesh, vmd, frame_offset=self.frameOffset, action_name=actionName)
 
         camera = None
         try:
@@ -315,7 +334,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
                     break
 
         if self.enabled_camera_key and camera is not None:
-            assignCameraMotion(camera, vmd, scale=self.scale, frame_offset=self.frameOffset)
+            assignCameraMotion(camera, vmd, scale=self.scale, frame_offset=self.frameOffset, action_name=actionName)
 
         return {'FINISHED'}
 

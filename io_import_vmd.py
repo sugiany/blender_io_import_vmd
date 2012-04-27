@@ -9,7 +9,7 @@ import re
 bl_info= {
     "name": "Import Vocaloid Motion Data file (.vmd)",
     "author": "sugiany",
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "blender": (2, 6, 2),
     "location": "File > Import > Import Vocaloid Motion Data file (.vmd)",
     "description": "Import a MikuMikuDance Motion data file (.vmd).",
@@ -264,7 +264,7 @@ def assignCameraMotion(camera, vmd_file, scale=0.2, frame_offset=0, cut_detectio
         if fcurve.data_path == 'rotation_euler':
             detectSceneChange(fcurve, cut_detection_threshold)
 
-from bpy.props import StringProperty, FloatProperty, IntProperty
+from bpy.props import StringProperty, FloatProperty, IntProperty, BoolProperty
 from bpy_extras.io_utils import ExportHelper,ImportHelper
 class ImportVmd_Op(bpy.types.Operator, ImportHelper):
     bl_idname= "vmd.importer"
@@ -273,6 +273,9 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
     bl_options= {'PRESET'}
 
     filename_ext = ".vmd"
+    enabled_shape_key = BoolProperty(default=True, name='shape key')
+    enabled_bone_key = BoolProperty(default=True, name='armature')
+    enabled_camera_key = BoolProperty(default=True, name='camera')
     filter_glob = StringProperty(default='*.vmd', options={'HIDDEN'})
     scale = FloatProperty(name="scale", default=0.2)
     frameOffset = IntProperty(name="frame offset", default=0)
@@ -287,7 +290,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
             if i.type == 'ARMATURE':
                 armature = i
                 break
-        if armature is not None:
+        if self.enabled_bone_key and armature is not None:
             assignSelectedObject(armature, vmd, scale=self.scale, frame_offset=self.frameOffset)
 
         mesh = None
@@ -296,7 +299,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
                 mesh = i
                 break
 
-        if mesh is not None:
+        if self.enabled_shape_key and mesh is not None:
             assignShapeKeys(mesh, vmd, frame_offset=self.frameOffset)
 
         camera = None
@@ -311,7 +314,7 @@ class ImportVmd_Op(bpy.types.Operator, ImportHelper):
                     camera = i
                     break
 
-        if camera is not None:
+        if self.enabled_camera_key and camera is not None:
             assignCameraMotion(camera, vmd, scale=self.scale, frame_offset=self.frameOffset)
 
         return {'FINISHED'}

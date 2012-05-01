@@ -256,7 +256,7 @@ def assignCameraMotion(camera, vmd_file, scale=0.2, frame_offset=0, cut_detectio
 
         camera.data.lens = d/(2*math.tan(math.radians(i.angle)/2))
         camera.location = mathutils.Vector((0, 0, -i.length)) * scale
-        camera.parent.location = mathutils.Vector((i.location.x, -i.location.z, i.location.y)) * scale
+        camera.parent.location = mathutils.Vector((i.location.x, i.location.z, i.location.y)) * scale
         camera.parent.rotation_euler = mathutils.Vector((i.rotation.x+math.radians(90.0), i.rotation.z, i.rotation.y))
         camera.data.keyframe_insert(data_path='lens',
                                     frame=i.frame+frame_offset)

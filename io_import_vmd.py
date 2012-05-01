@@ -10,7 +10,7 @@ import os
 bl_info= {
     "name": "Import Vocaloid Motion Data file (.vmd)",
     "author": "sugiany",
-    "version": (0, 1, 1),
+    "version": (0, 1, 2),
     "blender": (2, 6, 2),
     "location": "File > Import > Import Vocaloid Motion Data file (.vmd)",
     "description": "Import a MikuMikuDance Motion data file (.vmd).",
@@ -249,13 +249,16 @@ def assignCameraMotion(camera, vmd_file, scale=0.2, frame_offset=0, cut_detectio
     linkAction(action_name+'_cam',  [camera])
     linkAction(action_name+'_came',  [camera.parent])
 
+    camera.data.sensor_fit='VERTICAL'
+    d = camera.data.sensor_height
+
     for n, i in enumerate(cameraFrames):
 
-        camera.data.sensor_width = i.angle
+        camera.data.lens = d/(2*math.tan(math.radians(i.angle)/2))
         camera.location = mathutils.Vector((0, 0, -i.length)) * scale
         camera.parent.location = mathutils.Vector((i.location.x, -i.location.z, i.location.y)) * scale
         camera.parent.rotation_euler = mathutils.Vector((i.rotation.x+math.radians(90.0), i.rotation.z, i.rotation.y))
-        camera.data.keyframe_insert(data_path='sensor_width',
+        camera.data.keyframe_insert(data_path='lens',
                                     frame=i.frame+frame_offset)
         camera.keyframe_insert(data_path='location',
                                frame=i.frame+frame_offset)

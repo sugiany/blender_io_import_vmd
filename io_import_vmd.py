@@ -10,7 +10,7 @@ import os
 bl_info= {
     "name": "Import Vocaloid Motion Data file (.vmd)",
     "author": "sugiany",
-    "version": (0, 1, 2),
+    "version": (0, 1, 3),
     "blender": (2, 6, 2),
     "location": "File > Import > Import Vocaloid Motion Data file (.vmd)",
     "description": "Import a MikuMikuDance Motion data file (.vmd).",
@@ -22,7 +22,10 @@ bl_info= {
 _MMD_CAMERA_NAME = 'MMD_Camera'
 
 def _toShiftJisString(byteString):
-    eindex = byteString.index(b"\x00")
+    try:
+        eindex = byteString.index(b"\x00")
+    except Exception:
+        eindex = -1
     if eindex < len(byteString):
         byteString = byteString[0:eindex]
     return byteString.decode("shift_jis")
